@@ -6,6 +6,7 @@ queueLock = threading.Lock()
 reqQueue = queue.Queue(100)
 
 workers = []
+over_flag = False
 
 
 class client(threading.Thread):
@@ -31,6 +32,7 @@ class reqThread(threading.Thread):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.name = name
+        self.time_stamp = time.time()
 
     def run(self):
         print("req到达：" + self.name + "  ")
@@ -49,20 +51,15 @@ class master(threading.Thread):
 
     def run(self):
         while True:
-            for worker in workers:
-                worker.collect()
+            for each_worker in workers:
+                if self.detection():
+                    queueLock.acquire()
+                    each_worker.collect()
 
-
-def collect_req(workerID):
-    queueLock.acquire()
-    if not reqQueue.empty():
-        data = reqQueue.get()
-        queueLock.release()
-        print("put req %s in %s worker!" % (data.threadID, workerID))
+    def detection(self):
+        while reqQueue.empty():
+            continue
         return True
-    else:
-        queueLock.release()
-        return False
 
 
 class worker(threading.Thread):
@@ -71,21 +68,39 @@ class worker(threading.Thread):
         self.workerID = workerID
         self.batch_size = batch_size
         self.duration = duration
-        self.task = 0
+        self.task_queue = queue.Queue(batch_size)
 
     def collect(self):
-        if collect_req(self.workerID):
-            self.task += 1
-        if self.task == self.batch_size:
-            self.task = 0
-            time.sleep(self.duration)
+        self.task_queue.put(self.collect_req())
+        if self.task_queue.full():
+            self.work()
+
+    def collect_req(self):
+        if not reqQueue.empty():
+            data = reqQueue.get()
+            queueLock.release()
+            print("put req %s in %s worker!" % (data.threadID, self.workerID))
+            return data
+        else:
+            print("req queue is empty!")
+            return None
+
+    def work(self):
+        first_req_time = self.task_queue.get().time_stamp
+        self.task_queue.queue.clear()
+
+        print("worker " + str(self.workerID) + " work...")
+        time.sleep(self.duration)
+
+        done_time = time.time()
+        print("worker " + str(self.workerID) + " done...and WCL is " + str(done_time - first_req_time))
 
     def run(self):
-        print("work" + str(self.workerID) + "启动！")
+        print("worker" + str(self.workerID) + "启动！")
 
 
 if __name__ == '__main__':
-    create_workers(5, 4, 1)
+    create_workers(2, 2, 2)
 
     Client = client(2, 50)
     Client.start()
