@@ -35,7 +35,7 @@ class client(threading.Thread):
 
             end_time = time.time()
 
-            exec_time = end_time-start_time
+            exec_time = end_time - start_time
             if exec_time < self.time:
                 time.sleep(self.time - exec_time)
             self.req += 1
@@ -157,11 +157,12 @@ def pic():
 if __name__ == '__main__':
     # sys.stdout = open(os.devnull, 'w')
 
+    # simulation参数
     req_num = 100
     req_rate = 5
     worker_num = 5
-    batch_size = 2
-    duration = 2
+    batch_size = 3
+    duration = 3
 
     create_workers(worker_num, batch_size, duration)
 
