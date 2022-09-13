@@ -55,10 +55,12 @@ class reqThread(threading.Thread):
 
 
 class master(threading.Thread):
-    def __init__(self, req_num, worker_num):
+    def __init__(self, req_num, worker_num, Strategy, batch_size):
         threading.Thread.__init__(self)
         self.req_num = req_num
         self.worker_num = worker_num
+        self.Strategy = Strategy
+        self.batch_size = batch_size
 
     def detection(self):
         while reqQueue.empty():
@@ -74,15 +76,18 @@ class master(threading.Thread):
             print("req queue is empty! ")
             return None
 
-    def policy(self, req_id):
-        return req_id % self.worker_num
+    def strategy(self, req_id):
+        if self.Strategy == 0:
+            return req_id % self.worker_num
+        elif self.Strategy == 1:
+            return int(req_id / self.batch_size) % self.worker_num
 
     def run(self):
         while self.req_num != 0:
             if self.detection():
                 queueLock.acquire()
                 send_data, send_id = self.collect_req()
-                worker_id = self.policy(send_id)
+                worker_id = self.strategy(send_id)
 
                 workers[worker_id].task_queue.put(send_data)
                 print("put req %s in worker %s ! " % (send_id, worker_id))
@@ -161,12 +166,13 @@ if __name__ == '__main__':
     req_num = 100
     req_rate = 5
     worker_num = 5
-    batch_size = 3
-    duration = 3
+    batch_size = 2
+    duration = 2
+    strategy = 1
 
     create_workers(worker_num, batch_size, duration)
 
-    Master = master(req_num, worker_num)
+    Master = master(req_num, worker_num, strategy, batch_size)
     Master.start()
 
     Client = client(req_rate, req_num)
