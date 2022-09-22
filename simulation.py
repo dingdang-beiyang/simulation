@@ -15,6 +15,8 @@ reqQueue = queue.Queue(1000)
 workers = []
 next_req = 0
 
+req_wcl = []
+
 
 class client(threading.Thread):
     def __init__(self, req_rate, req_num):
@@ -26,18 +28,16 @@ class client(threading.Thread):
         self.req_num = req_num
 
     def run(self):
+        last_time = 0
         while self.req_num != self.req:
-            start_time = time.time()
+            while time.time() - last_time < self.time and last_time != 0:
+                time.sleep(0.0001)
 
             thread = reqThread(self.req, self.req_name + str(self.req))
             thread.start()
             reqQueue.put(thread)
 
-            end_time = time.time()
-
-            exec_time = end_time - start_time
-            if exec_time < self.time:
-                time.sleep(self.time - exec_time)
+            last_time = thread.time_stamp
             self.req += 1
 
 
@@ -51,16 +51,18 @@ class reqThread(threading.Thread):
     def run(self):
         # print("req到达：%s " % self.name)
         # 查看时间戳
+        req_wcl.append(self.time_stamp)
         print("req到达：%s , time: %f  " % (self.name, self.time_stamp))
 
 
 class master(threading.Thread):
-    def __init__(self, req_num, worker_num, Strategy, batch_size):
+    def __init__(self, req_num, worker_num, Strategy, batch_size, duration):
         threading.Thread.__init__(self)
         self.req_num = req_num
         self.worker_num = worker_num
         self.Strategy = Strategy
         self.batch_size = batch_size
+        self.duration = duration
 
     def detection(self):
         while reqQueue.empty():
@@ -89,9 +91,12 @@ class master(threading.Thread):
                 send_data, send_id = self.collect_req()
                 worker_id = self.strategy(send_id)
 
-                workers[worker_id].task_queue.put(send_data)
-                print("put req %s in worker %s ! " % (send_id, worker_id))
+                # 这里应该还要判断一下task_queue 是否 full，先忽略
+                workers[worker_id].put_data(send_data, send_id)
                 self.req_num -= 1
+            time.sleep(0.0001)
+
+        time.sleep(self.duration * 2)
         for worker in workers:
             worker.stop_key = True
 
@@ -106,7 +111,11 @@ class worker(threading.Thread):
         self.wcl_list = []
         self.stop_key = False
 
-    def work(self):
+    def put_data(self, data, send_id):
+        self.task_queue.put(data)
+        print("put req %s in worker %s ! " % (send_id, self.workerID))
+
+    def worker_wcl(self):
         first_req_time = self.task_queue.get().time_stamp
         self.task_queue.queue.clear()
 
@@ -118,13 +127,32 @@ class worker(threading.Thread):
         self.wcl_list.append(wcl_time)
         print("worker %s done...and WCL is %s " % (self.workerID, wcl_time))
 
+    def req_wcl(self):
+        req_id_list = []
+        while not self.task_queue.empty():
+            req_id = self.task_queue.get().threadID
+            req_id_list.append(req_id)
+
+        print("worker %s work... " % self.workerID)
+        time.sleep(self.duration)
+
+        done_time = time.time()
+        for req_id in req_id_list:
+            req_wcl[req_id] = done_time - req_wcl[req_id]
+
+        print("worker %s done..." % self.workerID)
+
+    # 两种wcl计算方式，一种是worker，一种是req
+    def work(self):
+        # self.worker_wcl()
+        self.req_wcl()
+
     def run(self):
         print("worker %s 启动！" % self.workerID)
-        while True:
+        while not self.stop_key:
             if self.task_queue.full():
                 self.work()
-            if self.stop_key:
-                break
+            time.sleep(0.0001)
 
 
 def create_workers(work_num, batch_size, duration):
@@ -159,20 +187,38 @@ def pic():
     plt.show()
 
 
+def pic_wcl():
+    pic_x = range(0, len(req_wcl))
+
+    plt.plot(pic_x,
+             req_wcl,
+             color='r',
+             marker='o',
+             linestyle='-',
+             label="req—num"
+             )
+
+    plt.legend()  # 显示图例
+    plt.xticks(pic_x, pic_x, rotation=45)
+    plt.xlabel("req number")  # X轴标签
+    plt.ylabel("Latency")  # Y轴标签
+    plt.show()
+
+
 if __name__ == '__main__':
     # sys.stdout = open(os.devnull, 'w')
 
     # simulation参数
-    req_num = 100
+    req_num = 50
     req_rate = 5
     worker_num = 5
-    batch_size = 2
+    batch_size = 5
     duration = 2
     strategy = 1
 
     create_workers(worker_num, batch_size, duration)
 
-    Master = master(req_num, worker_num, strategy, batch_size)
+    Master = master(req_num, worker_num, strategy, batch_size, duration)
     Master.start()
 
     Client = client(req_rate, req_num)
@@ -180,4 +226,6 @@ if __name__ == '__main__':
 
     for worker in workers:
         worker.join()
-    pic()
+
+    # pic()
+    pic_wcl()
